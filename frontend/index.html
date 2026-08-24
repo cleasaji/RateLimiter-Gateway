@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>RateLimiter-Gateway</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  :root { --bg:#0b0f14; --card:#131a22; --accent:#3ddc97; --danger:#ff5d5d; --text:#e8eef3; --muted:#8ea0ad; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); display:flex; justify-content:center; padding: 30px 16px; }
+  .wrap { width:100%; max-width: 700px; }
+  h1 { font-size: 1.6rem; margin-bottom:4px; }
+  p.sub { color: var(--muted); margin-top:0; }
+  .card { background: var(--card); border-radius: 14px; padding: 20px; }
+  select, button { padding: 10px 16px; border-radius: 8px; border: 1px solid #24303a; background: #0e141a; color: var(--text); }
+  button { background: var(--accent); color:#06110c; font-weight:600; cursor:pointer; border:none; margin-left: 8px; }
+  .bucket { display:flex; gap:4px; margin: 16px 0; flex-wrap:wrap; }
+  .token { width: 24px; height: 24px; border-radius: 4px; background: var(--accent); }
+  .token.empty { background: #24303a; }
+  .log { font-size: .8rem; max-height: 200px; overflow-y:auto; margin-top: 10px; }
+  .log div { padding: 3px 0; border-bottom: 1px solid #1a2129; }
+  .ok { color: var(--accent); }
+  .fail { color: var(--danger); }
+  .footer { text-align:center; color: var(--muted); font-size: .8rem; margin-top: 20px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🚦 RateLimiter-Gateway</h1>
+  <p class="sub">Token bucket rate limiter — hit the button fast to burst through the bucket, then watch it refill over time.</p>
+  <div class="card">
+    <select id="tier">
+      <option value="free">Free tier (burst 5, refill 1/sec)</option>
+      <option value="paid">Paid tier (burst 50, refill 10/sec)</option>
+    </select>
+    <button onclick="hitEndpoint()">Send Request</button>
+    <button onclick="burstRequests()" style="background:#24303a;color:var(--text);">Burst 10 requests</button>
+    <div class="bucket" id="bucketViz"></div>
+    <div class="log" id="log"></div>
+  </div>
+  <div class="footer">API: <code>http://localhost:8014</code></div>
+</div>
+
+<script>
+const API_BASE = "http://localhost:8014";
+
+async function hitEndpoint() {
+  const tier = document.getElementById("tier").value;
+  const res = await fetch(`${API_BASE}/api/data`, {
+    headers: { "X-API-Key": "demo-client", "X-Tier": tier },
+  });
+  const log = document.getElementById("log");
+  const entry = document.createElement("div");
+  if (res.status === 429) {
+    const data = await res.json();
+    entry.className = "fail";
+    entry.textContent = `429 Rate Limited — retry after ${data.retry_after_seconds}s`;
+  } else {
+    entry.className = "ok";
+    entry.textContent = `200 OK — remaining: ${res.headers.get("X-RateLimit-Remaining")}`;
+  }
+  log.insertBefore(entry, log.firstChild);
+  refreshBucket();
+}
+
+async function burstRequests() {
+  for (let i = 0; i < 10; i++) {
+    await hitEndpoint();
+  }
+}
+
+async function refreshBucket() {
+  const tier = document.getElementById("tier").value;
+  const res = await fetch(`${API_BASE}/status`, {
+    headers: { "X-API-Key": "demo-client", "X-Tier": tier },
+  });
+  const data = await res.json();
+  const viz = document.getElementById("bucketViz");
+  const filled = Math.round(data.tokens_remaining);
+  viz.innerHTML = Array.from({length: data.capacity}, (_, i) =>
+    `<div class="token ${i < filled ? "" : "empty"}"></div>`
+  ).join("");
+}
+
+document.getElementById("tier").addEventListener("change", refreshBucket);
+refreshBucket();
+setInterval(refreshBucket, 1000);
+</script>
+</body>
+</html>
